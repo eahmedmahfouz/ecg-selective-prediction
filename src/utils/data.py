@@ -33,6 +33,11 @@ _TRAIN_FOLDS: List[int] = list(range(1, 9))   # folds 1–8
 _VAL_FOLDS:   List[int] = [9]
 _TEST_FOLDS:  List[int] = [10]
 
+# PTB-XL encodes confirmed findings at likelihood=0.0 for rhythm codes and
+# for NST_ (non-specific ST changes). For consistency, aggregate_labels uses
+# presence-in-dict as the universal positivity signal: any code that appears
+# in scp_codes is positive regardless of its stored likelihood value.
+
 # Columns kept from ptbxl_database.csv after cleaning
 _META_COLS = [
     "ecg_id",
@@ -161,6 +166,11 @@ def aggregate_labels(
         .to_dict()
     )
 
+    # When the column is a numeric-presence flag (e.g. rhythm=1.0), every
+    # code maps to the same value — use the SCP code itself as the class name.
+    if len(set(scp_to_label.values())) == 1:
+        scp_to_label = {code: code for code in scp_to_label}
+
     # For each recording determine which labels apply (any likelihood > 0)
     # and which label has the highest likelihood.
     all_labels = sorted(set(scp_to_label.values()))
@@ -172,7 +182,7 @@ def aggregate_labels(
         # Collect (label, likelihood) for codes that map to a class
         label_likelihoods: Dict[str, float] = {}
         for code, likelihood in scp_codes.items():
-            if code in scp_to_label and likelihood > 0:
+            if code in scp_to_label:
                 lbl = scp_to_label[code]
                 # If multiple SCP codes map to the same label take the max
                 label_likelihoods[lbl] = max(
