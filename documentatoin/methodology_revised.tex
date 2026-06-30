@@ -1,0 +1,166 @@
+% Revised Section 4.3 — Acuity-Weighted Class-Conditional Risk Control
+%
+% Replaces subsections 4.3.1–4.3.4 in manuscript_draft.
+%
+% Changes from the submitted draft:
+%   4.3.1 — removed "quantile" from "stable per-class quantile estimate";
+%            added K=35 joint-model statement.
+%   4.3.2 — added paragraph explaining AFIB and AFLT are Critical because
+%            PTB-XL has no VT/VF; explicit "most-severe-available" caveat.
+%   4.3.3 — replaced split-conformal / quantile-q_k language with LTT
+%            binomial description; corrected prediction-set definition from
+%            {k : 1-f(x)_k <= q_k} to {k : f(x)_k >= lambda_c};
+%            replaced "quantile step" sample-floor with LTT certification
+%            floor as primary criterion; fixed "Three classes" -> "Two classes"
+%            after AFLT removal (AFLT n=7 < 10, never exceeded the naive floor).
+%   4.3.4 — unchanged; reproduced for completeness.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsubsection{Class granularity}
+\label{sec:granularity}
+
+We train a single 35-class model that jointly covers the subdiagnostic (23-class)
+and rhythm (12-class) label sets, operating at a finer granularity than the coarser
+5-class superdiagnostic task or the full 71-statement level.
+The superdiagnostic level conflates conditions of substantially different clinical
+urgency within a single class (e.g., the CD superclass contains both complete AV
+block and isolated incomplete bundle branch block); the full statement level, while
+more granular, produces calibration sets too sparse for several rare but high-acuity
+statements to support a stable per-class calibration.
+The subdiagnostic and rhythm granularities provide classes that are both clinically
+distinguishable by acuity and adequately represented in the PTB-XL calibration folds.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsubsection{Acuity tier definition}
+\label{sec:tiers}
+
+Each class is assigned to one of three ordinal acuity tiers---Critical, Important,
+Benign---together with a fourth, Excluded, category for baseline/negative findings
+(Table~\ref{tab:sample_counts}).
+We do not derive this tiering from a single canonical clinical risk-stratification
+instrument; rather, following the precedent established by recent conformal
+selective-prediction work in clinical triage~\cite{kwon2026}, we define the tiering
+directly through manual clinical-judgment grouping of SCP-ECG classes, and treat it
+as a stated, documented modeling assumption rather than a claim of ground truth.
+The tier boundaries are broadly consistent with how the AHA/ACC/HRS practice
+standards for electrocardiographic monitoring~\cite{sandau2017} and the AHA/ACCF/HRS
+recommendations for ECG standardization, Part VI~\cite{wagner2009}, stratify
+analogous conditions by monitoring priority and ischemic risk, though no formal
+one-to-one derivation from those instruments is performed.
+Table~\ref{tab:sample_counts} documents, for every grouping, the rationale
+underlying its tier assignment.
+
+Two groupings reflect a conservative rather than a precise classification.
+MI subtypes (AMI, IMI, LMI, PMI) cannot be separated into acute and chronic
+presentations at this label granularity, and are treated as Critical by default
+rather than assumed benign---a judgment call stated explicitly in the table.
+The \texttt{\_AVB} bucket merges all degrees of AV block and cannot be disentangled
+from high-grade block; it is likewise placed in Critical.
+
+PTB-XL contains no ventricular tachycardia or ventricular fibrillation records
+across any of its ten stratified folds; those rhythms are absent from the dataset
+entirely.
+As a consequence, atrial fibrillation (AFIB) and atrial flutter (AFLT) represent
+the most severe rhythm disorders available at this granularity, and they are assigned
+to the Critical tier rather than Important.
+This placement reflects a dataset constraint rather than a claim that AFib carries
+the same urgency as VT/VF.
+``Critical'' in this framework means \emph{most severe available in PTB-XL}, not
+ICU-grade emergency; we state this distinction explicitly so that any replication on
+a dataset that does include VT/VF can lower AFIB and AFLT to Important without
+contradicting our tier rationale.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsubsection{Calibration procedure}
+\label{sec:calibration}
+
+Given the tier assignment, each tier is mapped to a target per-class
+false-negative rate $\alpha_\mathrm{tier}$ (Table~\ref{tab:sample_counts}), and
+class-conditional calibration is performed independently per class following
+Algorithm~\ref{alg:aw-ccrc}.
+Calibration uses the Learn-Then-Test (LTT) framework~\cite{angelopoulos2021ltt}
+with an exact one-sided binomial risk test.
+For each class $k$ and candidate threshold $\lambda$ on a grid $\Lambda$ of
+$G{=}1000$ equally-spaced points in $[0,1]$, the null hypothesis
+$H_0\colon\mathrm{FNR}(\lambda)\ge\alpha_k$ is tested using the binomial cumulative
+distribution function evaluated at the observed miss count $k_g$ among the $n_k^+$
+calibration positives:
+\[
+  p_g = \Pr\!\bigl[X \le k_g \;\big|\; X \sim \mathrm{Bin}(n_k^+,\,\alpha_k)\bigr].
+\]
+Working from high $\lambda$ downward and exploiting the monotonicity of
+$\mathrm{FNR}(\lambda)$, the search stops at the first $\lambda$ that rejects $H_0$
+at level $\delta_k$.
+The resulting per-class threshold $\lambda_c^{(k)}$ defines class $k$'s contribution
+to the multi-label prediction set
+$\mathcal{C}(x) = \{k\in\mathcal{Y} :
+  \lambda_c^{(k)}\neq\varnothing,\;f_\theta(x)_k\ge\lambda_c^{(k)}\}$.
+
+To provide a simultaneous guarantee across all supported classes, we apply
+Bonferroni correction: $\delta_k = \delta\,/\,|\mathcal{Y}_\mathrm{sup}|$ with
+$\delta{=}0.10$ and $|\mathcal{Y}_\mathrm{sup}|{=}24$, giving
+$\delta_k\approx 0.0042$.
+This between-class correction is integral to the procedure; omitting it would reduce
+the guarantee to a per-class statement at the full $\delta$ rather than the stated
+simultaneous bound.
+
+A class is certifiable only if its calibration-fold positive count $n_k^+$ satisfies
+$(1-\alpha_k)^{n_k^+}\le\delta_k$---the condition under which even flagging every
+positive ($k{=}0$ misses at $\lambda{=}0$) would reject $H_0$ at $\delta_k$.
+This LTT certification floor substantially exceeds the weaker quantile-existence
+floor $n_k^+\ge\lceil 1/\alpha_k\rceil-1$: with $\delta{=}0.10/24$, the minimum
+certifiable $n_k^+$ is approximately~272 for the Critical tier ($\alpha{=}0.02$),
+107 for the Important tier ($\alpha{=}0.05$), and~53 for the Benign tier
+($\alpha{=}0.10$).
+Table~\ref{tab:sample_counts} reports positive-example counts against the
+tier-specific quantile-existence floors ($n_k^+\ge 49\,/\,19\,/\,9$ for Critical /
+Important / Benign); classes that exceed this weaker floor but fall short of the LTT
+certification floor are flagged with a superscript and reported as uncertifiable in
+Table~\ref{tab:primary_calibration}.
+AFIB ($n{=}151$) and \texttt{\_AVB} ($n{=}83$) are the primary examples: both exceed
+the quantile-existence floor for Critical ($n\ge 49$) and therefore appear as
+Supported in Table~\ref{tab:sample_counts}, but neither reaches the LTT
+certification floor of~272 and both are therefore uncertifiable in
+Table~\ref{tab:primary_calibration}.
+
+Two classes exceed a naive fixed threshold of $n\ge 10$ yet fall below the exact
+LTT requirement for their assigned tier: LMI ($n{=}20$ against a Critical-tier
+requirement of~49) and SVARR ($n{=}15$ against an Important-tier requirement
+of~19).
+One Benign-tier class, RAO/RAE ($n{=}10$), meets its quantile-existence requirement
+($n\ge 9$) by a margin of exactly one example.
+These classes remain in the calibration procedure, but their resulting thresholds
+are reported in subsequent tables with an explicit finite-sample caveat rather than
+presented as equivalent in reliability to classes with substantially larger
+calibration support.
+
+PMI is excluded from calibration entirely.
+With only $n{=}2$ positive calibration examples, the best guarantee achievable
+under Algorithm~\ref{alg:aw-ccrc} is $\alpha_\mathrm{min}\approx 0.33$, looser
+than every tier target in this scheme, including the most permissive
+(Benign, $\alpha{=}0.10$).
+No re-assignment of PMI's target $\alpha$ within the tier structure resolves this,
+since the limitation is one of available sample size rather than tier placement.
+We therefore omit PMI from class-conditional calibration and from per-class
+false-negative-rate reporting in Section~\ref{sec:results}, and report this
+omission explicitly rather than present a threshold the calibration data cannot
+support.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsubsection{Sensitivity analysis}
+\label{sec:sensitivity}
+
+% Unchanged from draft — reproduced for completeness.
+Because the numeric $\alpha$ values attached to each tier are a modeling choice
+rather than an externally validated quantity, we repeat the full calibration and
+evaluation procedure under two additional configurations---a stricter mapping
+($\alpha = 0.01/0.03/0.08$ for Critical / Important / Benign) and a looser one
+($\alpha = 0.05/0.08/0.15$)---alongside the primary configuration
+(0.02/0.05/0.10).
+We report per-class false-negative-rate ordering, the risk--coverage ordering across
+methods, and the operational flag rate for all three configurations side by side
+(Section~\ref{sec:results}).
+Findings that hold across all three configurations are reported as primary results;
+any metric sensitive to the specific tier-to-$\alpha$ mapping is reported explicitly
+as such, rather than presented only under the configuration most favorable to the
+method.

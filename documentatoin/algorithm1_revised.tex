@@ -1,0 +1,105 @@
+%Changes Made to Algorithm 1
+%
+%1. Two missing inputs added: δ and Λ
+%
+%The original had no δ (confidence level) or Λ (threshold grid). Both are required to understand the procedure. In the code: δ = 0.10, Λ = {0, 1/1000, …, 1} (G = 1000 points).
+%
+%2. Bonferroni pre-step added (critical)
+%
+%The original jumped straight into the per-class loop with no mention of how δ is split. The revised algorithm adds, before any loop:
+%
+%δ_k ← δ / |Y_sup|
+%
+%This is the between-class correction that gives the simultaneous guarantee across all supported classes. Without it, the algorithm as written would give only a per-class guarantee at the full δ, which is not what the code does and not what the paper claims.
+%
+%3. Nonconformity score step removed
+%
+%Lines 7–8 of the original (a_i ← 1 − f_θ(x_i)_k) were dropped. The code works directly in probability space — the miss condition is simply score < λ. The nonconformity reformulation is mathematically equivalent but introduced a variable that no subsequent line used in the right way anyway (the quantile was applied to the a_i, but the prediction set at line 12 re-derived 1 − f_θ independently).
+%
+%4. Quantile formula on line 10 replaced with LTT binomial test
+%
+%The original line 10:
+%q_k^(s) ← Quantile_{⌊(n_k+1)(1-α_k)⌋/n_k}({a_i})
+%is the standard split-conformal quantile, not the LTT procedure. The code does something different: for each grid point λ it computes an exact one-sided binomial p-value (scipy.stats.binom.cdf(k_misses, n_k, alpha_k)) and selects the largest λ that rejects H₀: FNR(λ) ≥ α_k at level δ_k.
+%
+%The revised lines 10–17 show this loop explicitly, with a note that monotonicity of FNR(λ) lets the search stop at the first rejection working from high λ downward.
+%
+%5. Uncertifiable case made explicit
+%
+%The revised algorithm checks Binom-CDF(0; n_k, α_k) > δ_k before the grid search. This is the exact condition the code hits when cut < 0 (no grid point passes) — it means even flagging everything (k = 0 misses, FNR = 0) cannot be certified at the corrected δ_k. The original had no such branch; uncertifiable and trivial cases were both silent returns of 0.
+%
+%6. Output symbol changed from q_k to λ_c^(k,s)
+%
+%q_k was a nonconformity-space threshold (1 − probability). λ_c is the probability threshold used everywhere else in the paper and in the code. The prediction set line now reads f_θ(x_j)_k ≥ λ_c^(k,s) directly.
+%
+%7. "AutoConfirmRate" → "FlagRate" in line 22
+%
+%The original stability-report step referenced "AutoConfirmRate," which is not a defined quantity anywhere in the paper or code. The correct term is "FlagRate" (fraction of test records flagged positive), which is what flag_pct measures in all result files.
+%
+%8. K updated to 35
+%
+%The original said "K = 23 subdiagnostic or K = 12 rhythm" (implying two separate runs). The implementation trains and calibrates a single 35-class model jointly. The revised input says K = 35.
+
+\begin{algorithm}[t]
+\small
+\DontPrintSemicolon
+\SetAlgoLined
+\SetKwComment{tcp}{\quad// }{}
+
+\caption{Acuity-Weighted Class-Conditional Risk Control (AW-CCRC)}
+\label{alg:aw-ccrc}
+
+\KwIn{%
+  $f_\theta$ (classifier);
+  $\mathcal{D}_\mathrm{cal}{=}\{(x_i,y_i)\}_{i=1}^m$ ($y_i\!\subseteq\!\mathcal{Y}$, multi-label);
+  $\mathcal{Y}$, $|\mathcal{Y}|{=}K{=}35$;\\
+  \hspace*{3.2em}%
+  $T{:}\mathcal{Y}\!\to\!\{\mathrm{Crit,Imp,Ben}\}$ (Alg.~2);
+  $\mathcal{A}{=}\{\alpha^{(1)},\ldots,\alpha^{(S)}\}$;
+  $\delta{=}0.10$;
+  $\Lambda\subset[0,1]$, $|\Lambda|{=}G{=}1000$%
+}
+
+\KwOut{%
+  $\{\lambda_c^{(k,s)}\}$: calibrated thresholds ($\varnothing$ if uncertifiable)\;
+  $\{\widehat{\mathrm{FNR}}_k^{(s)}\}$: empirical miss rate on test fold\;
+  $\Delta$: cross-configuration stability report%
+}
+
+\BlankLine
+
+\tcp*[l]{\textit{Preprocessing — config-independent}}
+\lForEach{$k \in \mathcal{Y}$}{$\mathrm{tier}_k \leftarrow T(k)$}
+$\mathcal{Y}_\mathrm{sup} \leftarrow \{k\in\mathcal{Y} : n_k^+\ge\lceil 1/\alpha_k\rceil{-}1\}$\tcp*[r]{min.\ samples for quantile to exist}
+$\delta_k \leftarrow \delta\;/\;|\mathcal{Y}_\mathrm{sup}|$\tcp*[r]{Bonferroni: simultaneous guarantee over $|\mathcal{Y}_\mathrm{sup}|{=}24$ supported classes}
+
+\BlankLine
+
+\tcp*[l]{\textit{Per-configuration calibration and evaluation}}
+\For{$s \leftarrow 1$ \KwTo $S$}{
+  \For(\tcp*[f]{calibrate each class}){each $k \in \mathcal{Y}$}{
+    $\alpha_k \leftarrow \alpha^{(s)}(\mathrm{tier}_k)$;\ \
+    $\mathcal{S}_k \leftarrow \{f_\theta(x_i)_k : k\in y_i\}$;\ \
+    $n_k \leftarrow |\mathcal{S}_k|$\;
+    \uIf(\tcp*[f]{uncertifiable: $n_k$ too small to reject $H_0$ at zero misses}){$(1-\alpha_k)^{n_k} > \delta_k$}{
+      $\lambda_c^{(k,s)} \leftarrow \varnothing$\;
+    }
+    \Else{
+      $\lambda_c^{(k,s)} \leftarrow 0$\tcp*[r]{default: flag all (trivial, $\widehat{\mathrm{FNR}}{=}0$)}
+      \For(\tcp*[f]{largest $\lambda$ rejecting $H_0$}){$\lambda_g \in \Lambda$ in \textnormal{decreasing} order}{
+        $k_g \leftarrow \bigl|\{s'\in\mathcal{S}_k : s'\!<\!\lambda_g\}\bigr|$\tcp*[r]{miss count; non-decreasing in $\lambda_g$}
+        $p_g \leftarrow \Pr\!\bigl[X\!\le\!k_g\mid X\!\sim\!\mathrm{Bin}(n_k,\alpha_k)\bigr]$\tcp*[r]{one-sided p-value: $H_0{:}\,\mathrm{FNR}(\lambda_g)\!\ge\!\alpha_k$}
+        \lIf{$p_g \le \delta_k$}{$\lambda_c^{(k,s)} \leftarrow \lambda_g$;\enspace\textbf{break}}
+      }
+    }
+  }
+  \lForEach(\tcp*[f]{predicted positives}){test record $x_j$}{$\mathcal{C}^{(s)}(x_j)\leftarrow\bigl\{k : \lambda_c^{(k,s)}\!\ne\!\varnothing,\;f_\theta(x_j)_k\!\ge\!\lambda_c^{(k,s)}\bigr\}$}
+  \lForEach(\tcp*[f]{empirical test miss rate}){certified $k$}{$\widehat{\mathrm{FNR}}_k^{(s)}\leftarrow\hat{\Pr}\bigl[k\!\in\!y_j \wedge k\!\notin\!\mathcal{C}^{(s)}(x_j)\mid k\!\in\!y_j\bigr]$}
+}
+
+\BlankLine
+
+$\Delta \leftarrow \mathrm{Compare}\!\bigl(\{\widehat{\mathrm{FNR}}_k^{(s)}\}_{s=1}^S,\ \mathrm{RiskCoverageCurve}^{(s)},\ \mathrm{FlagRate}^{(s)}\bigr)$\;
+\Return $\bigl\{\lambda_c^{(k,s)}\bigr\},\ \bigl\{\widehat{\mathrm{FNR}}_k^{(s)}\bigr\},\ \Delta$
+
+\end{algorithm}

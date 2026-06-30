@@ -36,21 +36,36 @@ repo/
 ├── src/
 │   ├── train.py                  # baseline (5-class)
 │   ├── train_acuity.py           # Contribution 1 (35-class)
+│   ├── metrics.py                # temperature_scale(), expected_calibration_error() — Guo 2017
+│   ├── generate_tables.py        # LaTeX tables for Contribution 1 results
 │   ├── models/resnet1d.py        # ECGResNet — raw logits, no sigmoid inside
 │   ├── calibration/risk_control.py   # Contribution 1: calibrate_threshold()
-│   ├── plot_risk_coverage.py         # Fig: operating points scatter (tier-colored, no lines)
 │   ├── plot_risk_coverage_curves.py  # Fig: 34 certified pts × 3 configs, background bands
 │   ├── plot_class_auroc.py           # Fig: 3-panel ROC curves, 24 supported classes
+│   ├── plot_uniform_vs_tiered.py     # Fig: stacked-bar certification outcomes comparison
 │   └── utils/
 │       ├── data.py               # load_ptbxl_metadata, load_signals, get_fold_splits,
 │       │                          fit_standardizer/apply_standardizer, aggregate_labels
 │       └── labels_acuity.py      # generate_combined_labels() -> (N,35)
 ├── tests/
-├── checkpoints/                  # weights, logits, norm stats, acuity_labels/ — gitignored
+├── checkpoints/                  # gitignored; contains:
+│                                 #   best_model.pt, acuity_model.pt
+│                                 #   {val,test}_logits.npy, {val,test}_labels.npy
+│                                 #   {val,test}_probs_cal.npy (temperature-scaled probs)
+│                                 #   temperature.txt (T=1.384)
+│                                 #   acuity_{val,test}_{logits,labels}.npy
+│                                 #   acuity_labels/class_names.json, y_combined_{train,val,test}.npy
+│                                 #   X_raw.npy
 └── results/
-    ├── contribution1/            # sensitivity_sweep.csv, scorecard.csv, etc.
-    └── figures/                  # risk_coverage.pdf/png, risk_coverage_curves.pdf/png,
-                                  # class_auroc.pdf/png, uniform_vs_tiered.pdf/png
+    ├── contribution1/            # sensitivity_sweep.csv, primary_calibration.csv,
+    │                             # scorecard.csv, supported_classes.csv,
+    │                             # unsupported_classes.csv, uniform_comparison.csv,
+    │                             # failure_mode_scorecard.md, summary.txt
+    ├── tables/                   # table1_tier_definitions.tex, table2_primary_calibration.tex,
+    │                             # table3_failure_modes.tex, table4_coverage_simulation.tex
+    ├── figures/                  # risk_coverage_curves.pdf/png, class_auroc.pdf/png,
+    │                             # uniform_vs_tiered.pdf/png
+    └── temperature_scaling.csv   # Phase 1 baseline results (ECE before/after, T)
 ```
 
 `loader.py` (an earlier draft) is superseded by `data.py` — do not recreate it.
@@ -67,7 +82,10 @@ Both models: input `(batch,12,1000)`, output raw logits `(batch, n_classes)`, `B
 
 ## Phase Plan (baseline track)
 
-1. Calibration — temperature scaling, ECE before/after. First entry in `src/metrics.py`.
+1. **Calibration — COMPLETE.** Temperature scaling implemented in `src/metrics.py` (`temperature_scale()`, `expected_calibration_error()` — Guo et al. 2017). Fitted T=1.384 on val logits. Results in `results/temperature_scaling.csv`:
+   - Val ECE: 0.0367 → 0.0115 (−69%)
+   - Test ECE: 0.0400 → 0.0162 (−60%)
+   Calibrated probs saved as `checkpoints/{val,test}_probs_cal.npy`.
 2. MC Dropout — predictive entropy from N=30 stochastic forward passes.
 3. Deep Ensembles — 5 seeds, prediction variance as selection score.
 4. Conformal Risk Control — class-conditional FNR guarantees, uniform α (comparison point against Contribution 1's acuity-weighted version).
@@ -152,9 +170,9 @@ Three paper figures generated; all save to `results/figures/`:
 
 | File | Script | What it shows |
 |---|---|---|
-| `risk_coverage.pdf` | `plot_risk_coverage.py` | Single-panel scatter: (flag-rate, FNR) operating points for all 34 certified points, tier-colored, background FNR bands, α ceiling lines |
-| `risk_coverage_curves.pdf` | `plot_risk_coverage_curves.py` | Same 34 points × 3 α sweep configs; marker shape encodes config (▼ stricter, ● tiered, ▲ looser); background bands |
-| `class_auroc.pdf` | `plot_class_auroc.py` | 3-panel ROC curves (Critical / Important / Benign) for all 24 supported classes; solid = certified, dashed = uncertifiable/trivial |
+| `risk_coverage_curves.pdf` | `plot_risk_coverage_curves.py` | 34 certified (flag-rate, FNR) points × 3 α sweep configs; marker shape encodes config (▼ stricter, ● tiered, ▲ looser); tier-colored; background FNR bands; α ceiling lines |
+| `class_auroc.pdf` | `plot_class_auroc.py` | 3-panel ROC curves (Critical / Important / Benign) for all 24 supported classes; solid = certified at tiered/primary, dashed = uncertifiable/trivial |
+| `uniform_vs_tiered.pdf` | `plot_uniform_vs_tiered.py` | Stacked-bar certification outcomes (certified / trivial / uncertifiable) comparing tiered α vs. uniform α=0.02/0.05/0.10; right panel shows certified count per tier |
 
 **Locked decisions for all figures:**
 
@@ -179,4 +197,4 @@ See `rules.md`. In short: give Claude Code specs not goals; it writes code, the 
 
 ## Next Action
 
-Contribution 1 calibration, sensitivity sweep, and all three paper figures are complete and locked. Next: Phase 1 of the baseline track — temperature scaling on the 5-class superdiagnostic model. Implement `src/metrics.py` with `temperature_scale()` (fit T on val logits, apply to test logits) and `expected_calibration_error()` (ECE, cite Guo et al. 2017). Report ECE before/after on the baseline model's val and test sets. Do not touch the acuity model or Contribution 1 code.
+Contribution 1 calibration, sensitivity sweep, and all three paper figures are complete and locked. Baseline Phase 1 (temperature scaling) is complete. Next: **Phase 2 — MC Dropout** on the 5-class superdiagnostic model. Add `mc_dropout_entropy()` to `src/metrics.py`: N=30 stochastic forward passes with dropout active, compute predictive entropy per sample, use as abstention score. Report selective accuracy vs. coverage curve and AURC. Do not touch the acuity model or Contribution 1 code.

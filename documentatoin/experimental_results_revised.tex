@@ -1,0 +1,216 @@
+% Revised Section 5 — Experimental Results
+%
+% Based on manuscript_draft.pdf pages 9–11.
+% All numbers verified against:
+%   results/contribution1/primary_calibration.csv
+%   results/contribution1/sensitivity_sweep.csv
+%   results/contribution1/uniform_comparison.csv
+%   results/contribution1/scorecard.csv
+%   results/auroc_per_class.csv
+%   results/coverage_simulation.csv
+%
+% Changes from the submitted draft:
+%   5.2.1 — "nonconformity scores drawn from Beta(7,3) and Beta(3,7)" corrected
+%            to "probability scores"; the LTT tests f_theta(x)_k >= lambda
+%            directly, never inverts to 1 - score.
+%   5.2.2 — Rewrote the "Two of the uncertifiable Critical/Important results"
+%            paragraph. The original claimed these classes were uncertifiable
+%            due to sample size "rather than test FNR" — implying other
+%            uncertifiable classes were due to FNR, which is wrong: all
+%            uncertifiable results arise from the LTT certification floor not
+%            being met. The revised paragraph explains the two-floor distinction
+%            (quantile-existence vs. LTT) and covers all affected classes
+%            (AFIB, _AVB, CLBBB, ISCA, ISCI), not just the Critical-tier pair.
+%   5.2.4 — "effective FNR bound of 0.054" corrected to "FNR guarantee of 0.10".
+%            0.054 is lambda_c (the threshold), not the FNR bound; the bound
+%            certified by the binomial LTT at alpha=0.10 is 0.10.
+%   5.1   — Section header only (placeholder); unchanged.
+%
+% Numbers verified correct and unchanged:
+%   MC simulation: violation=0.078, mean lambda_c=0.497, mean FNR=0.088
+%   Hoeffding grid-Bonferroni: violation=0.000, lambda_c=0.418, FNR=0.033
+%   Hoeffding monotone: violation=0.000, lambda_c=0.473, FNR=0.067
+%   Certified 11, trivial 2, uncertifiable 11
+%   AMI: lambda_c=0.0060, test FNR=0.0131, flag=54.0%
+%   IMI: lambda_c=0.0020, test FNR=0.0061, flag=76.1%
+%   Benign: 9/14 certified, FNR range 0.0000 (NST_) – 0.0901 (STTC)
+%   Flag range: 9.8% (STACH) – 96.1% (IVCD)
+%   14/24 violations for both uncorrected baselines
+%   Safety failures: 6 (AFIB, AMI, IMI, _AVB, ISCA, ISC_)
+%   Efficiency losses: 9 (IRBBB, IVCD, LAFB/LPFB, LVH, NST_, SARRH, SBRAD, STACH, STTC)
+%   AUROC range: 0.746 (IVCD) – 0.998 (CRBBB); AFIB=0.983, CLBBB=0.997
+%   34 certified (class, config) pairs across 16 distinct classes
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Experimental Results}
+
+\subsection{Experimental Setup}
+% [Placeholder — content to be added]
+
+\subsection{Acuity-Weighted Class-Conditional Risk Control: Results}
+
+\subsubsection{Validity of the testing procedure}
+
+Certification used the Learn-Then-Test (LTT) framework with a one-sided binomial
+risk test and a monotone-boundary search over the threshold $\lambda$, controlling
+the family-wise error rate at $\delta{=}0.10$ across the 24 supported classes via
+Bonferroni correction (per-class $\delta\approx 0.0042$).
+The validity of this configuration was assessed by Monte Carlo simulation
+($n_\mathrm{trials}{=}1000$, $n_\mathrm{cal}{=}2000$, target $\alpha{=}0.10$,
+$\delta{=}0.10$, positive and negative probability scores drawn from
+% CHANGED: "nonconformity scores" -> "probability scores".
+% The LTT procedure tests f_theta(x)_k >= lambda directly.  Nothing is inverted
+% to 1-score; calling them nonconformity scores is incorrect in this context.
+$\mathrm{Beta}(7,3)$ and $\mathrm{Beta}(3,7)$ respectively, with the true
+false-negative rate evaluated analytically from the Beta CDF).
+The adopted binomial monotone-boundary variant produced an empirical violation rate
+of 0.078, within the permitted bound $\delta{=}0.10$, at a mean certified threshold
+$\bar\lambda_c{=}0.497$ and mean FNR 0.088 (Table~\ref{tab:coverage_sim}).
+Two alternative estimators were evaluated for reference: a Hoeffding bound with
+grid-Bonferroni correction (violation~$={=}$~0.000, $\bar\lambda_c{=}0.418$, mean
+FNR~0.033) and a Hoeffding bound with monotone boundary
+(violation~$={=}$~0.000, $\bar\lambda_c{=}0.473$, mean FNR~0.067).
+All three configurations satisfied the coverage requirement.
+
+\subsubsection{Primary calibration outcomes}
+
+Across the 24 supported classes, the acuity-weighted procedure certified a
+class-conditional FNR guarantee at the tier-specific target for 11~classes,
+returned a trivial threshold ($\lambda{=}0$, indicating no discriminative
+selectivity) for 2~classes, and returned no certificate for 11~classes
+(Table~\ref{tab:primary_calibration}).
+For every certified class, the FNR measured on the held-out test fold (fold~10)
+fell at or below the class's target $\alpha$.
+
+In the Critical tier ($\alpha{=}0.02$), AMI and IMI were certified, with test FNRs
+of 0.0131 and 0.0061 at certified thresholds $\lambda_c{=}0.0060$ and 0.0020 and
+corresponding flag rates of 54.0\% and 76.1\%.
+The remaining three Critical-tier classes (AFIB, LMI, \texttt{\_AVB}) were
+uncertifiable.
+In the Important tier ($\alpha{=}0.05$), no class was certified: four classes were
+uncertifiable and ISC\_ returned a trivial threshold.
+In the Benign tier ($\alpha{=}0.10$), 9 of 14 classes were certified, with test
+FNRs ranging from 0.0000 (NST\_) to 0.0901 (STTC) and flag rates ranging from
+9.8\% (STACH) to 96.1\% (IVCD).
+
+% CHANGED: rewrote this paragraph entirely.
+% Original: "Two of the uncertifiable Critical/Important results were associated
+%            with calibration-fold sample size rather than with test FNR."
+% Problem:  ALL uncertifiable results are due to the LTT certification floor not
+%           being met -- this is a function of n_k, alpha_k, and delta_k alone,
+%           independent of the actual score distribution.  Framing two classes as
+%           sample-size-limited "rather than FNR-limited" implies the others are
+%           FNR-limited, which is wrong.  The correct distinction is between
+%           classes that fall between the two floors (quantile-existence vs. LTT)
+%           and those below both floors.  CLBBB and ISCA are in the same
+%           between-floors situation as AFIB and _AVB; the original ignored them.
+All uncertifiable results arise from the LTT certification floor not being met
+at $\delta_k\approx 0.0042$: the condition $(1-\alpha_k)^{n_k^+}\le\delta_k$
+depends only on sample count, $\alpha_k$, and the Bonferroni-corrected
+$\delta_k$---not on the test-set score distribution.
+The notable split is between classes that fall \emph{between} the two floors
+(quantile-existence floor met, LTT floor not) and those below both.
+In the Critical tier, AFIB ($n{=}151$) and \texttt{\_AVB} ($n{=}83$) both exceed
+the quantile-existence floor ($n\ge 49$) and therefore appear as Supported in
+Table~\ref{tab:sample_counts}, but neither reaches the LTT certification floor
+of~272; LMI ($n{=}20$) falls below the quantile-existence floor.
+In the Important tier, CLBBB ($n{=}54$) and ISCA ($n{=}92$) are in the same
+between-floors position (quantile-existence floor $n\ge 19$ met; LTT floor
+$n\ge 107$ not); ISCI ($n{=}39$) exceeds the quantile-existence floor marginally
+but also falls short of the LTT floor; SVARR ($n{=}15$) is below both floors.
+The two trivial classes (ISC\_, CRBBB) form a distinct category: both meet the LTT
+certification floor (ISC\_ $n{=}125\ge 107$; CRBBB $n{=}55\ge 53$), but their
+positive-class scores are concentrated near zero, leaving no threshold above
+$\lambda{=}0$ that passes the binomial test.
+
+\subsubsection{Comparison against uncorrected calibration baselines}
+
+To assess whether per-class miscoverage control requires the statistical correction
+applied by the binomial LTT procedure, two baselines without such correction were
+evaluated: temperature-scaled thresholding~\cite{} and MC Dropout
+thresholding~\cite{}.
+Each baseline selects, per class, the threshold $\lambda$ at which
+validation-fold FNR first falls at or below $\alpha_\mathrm{tier}$, with no
+adjustment for sampling variability between the validation and test folds.
+
+Across the 24 supported classes, the binomial LTT procedure produced no violations
+of the target $\alpha_\mathrm{tier}$ on the test fold (0/24, 0\%).
+Both uncorrected baselines violated their target on 14 of 24 classes (58\%)
+(Table~\ref{tab:headline}).
+
+These 14 violations are not concentrated among the classes LTT fails to certify.
+Of the 11 classes certified by LTT, 8 (AMI, IMI, IVCD, LVH, NST\_, SARRH, SBRAD,
+STTC) violate $\alpha_\mathrm{tier}$ under both uncorrected baselines on the test
+fold; the remaining 3 certified classes---IRBBB, LAFB/LPFB, STACH---do not violate
+under either baseline.
+Conversely, of the 13 classes LTT cannot certify (uncertifiable or trivial),
+7 (\texttt{\_AVB}, CLBBB, ISCA, ISCI, ISC\_, RAO/RAE, CRBBB) do not violate
+$\alpha_\mathrm{tier}$ under the uncorrected baselines on this fold, while the
+remaining 6 (AFIB, LMI, SVARR, LAO/LAE, PACE, RVH) do.
+The uncorrected baselines' agreement with the target on these 7 classes is an
+outcome of this particular validation/test split rather than a property guaranteed
+to hold under resampling, since the baseline procedure carries no statistical
+correction for sampling variability between folds.
+One of the seven, RAO/RAE, holds at exact equality (test FNR $=\alpha{=}0.10$),
+with no margin between the observed value and the target.
+
+Table~\ref{tab:mechanism} reports threshold and test-fold FNR for the 8 classes on
+which LTT certifies and both uncorrected baselines violate.
+In all 8 rows, the uncorrected threshold exceeds the LTT threshold for both
+baselines ($\lambda_\mathrm{TS}>\lambda_\mathrm{LTT}$ and
+$\lambda_\mathrm{MC}>\lambda_\mathrm{LTT}$, with no exception across the 16
+comparisons).
+A higher threshold corresponds to a lower flag rate and, by the definition of FNR
+used here, a larger fraction of true positives falling below threshold and being
+scored negative---the numeric pattern underlying the violations.
+The LTT threshold in each row is set by a procedure that incorporates the sampling
+gap between the validation fold, on which $\lambda$ is chosen, and the test fold,
+on which FNR is subsequently measured; the uncorrected procedure selects the
+threshold at which validation-fold FNR first meets $\alpha_\mathrm{tier}$, with no
+explicit allowance for that gap.
+
+Temperature scaling was also evaluated for its effect on aggregate calibration
+quality, independent of the per-class violation analysis above.
+Fitting $T{=}1.115$ reduced expected calibration error (ECE) from 0.0049 to 0.0023,
+a 53\% relative reduction.
+This improvement in aggregate calibration is distinct from per-class adherence to a
+false-negative-rate target: temperature scaling achieves a substantially lower ECE
+while simultaneously violating $\alpha_\mathrm{tier}$ on 14 of 24 classes
+(Table~\ref{tab:headline}), indicating that improved aggregate calibration does not
+by itself imply per-class control of the false-negative rate.
+
+\subsubsection{Comparison of tiered and uniform-$\alpha$ strategies}
+
+The tiered assignment was compared against three uniform-$\alpha$ strategies
+($\alpha{=}0.02$, 0.05, 0.10 applied identically to all classes)
+(Figure~\ref{fig:uniform_vs_tiered}; Table~\ref{tab:uniform_comparison}).
+Relative to the tiered assignment, the uniform $\alpha{=}0.02$ strategy failed to
+certify 9 Benign-tier classes that the tiered assignment certified (efficiency
+losses).
+The uniform $\alpha{=}0.10$ strategy certified 6 Critical- and Important-tier
+classes at a target looser than their assigned tier required (safety failures);
+for these classes the published guarantee exceeded the tier's $\alpha$
+% CHANGED: "effective FNR bound of 0.054" corrected to "FNR guarantee of 0.10".
+% 0.054 (= lambda_c for AFIB under u0.10) is the threshold, not the FNR bound.
+% The FNR bound certified by the binomial LTT test at alpha=0.10 is 0.10.
+(e.g., AFIB certified at an FNR guarantee of $\alpha{=}0.10$ against a
+Critical-tier requirement of $\alpha{=}0.02$).
+The two effect sets were disjoint (intersection~$=$~0): no class appeared in both
+the efficiency-loss and safety-failure sets.
+A further 9 classes were unaffected by the choice of strategy, being uncertifiable
+or trivial under all configurations.
+In total, 15 of 24 supported classes (63\%) had a different certification outcome
+under at least one uniform strategy than under the tiered assignment.
+
+\subsubsection{Discrimination and operating points}
+
+Per-class discrimination, summarised by the area under the receiver operating
+characteristic curve (AUROC), ranged from 0.746 to 0.998 across the supported
+classes (Figure~\ref{fig:class_auroc}).
+Certification outcome and AUROC were not aligned in rank: several high-AUROC classes
+were uncertifiable (AFIB, AUROC~$=$~0.983; CLBBB, AUROC~$=$~0.997), while a
+lower-AUROC class was certified (IVCD, AUROC~$=$~0.746).
+The certified configurations yielded 34 risk-coverage operating points across
+16~classes and the three $\alpha$ settings (Figure~\ref{fig:risk_coverage}), with
+flag rate and test FNR varying by tier and target as tabulated in
+Table~\ref{tab:primary_calibration}.
